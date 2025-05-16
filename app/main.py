@@ -6,6 +6,7 @@ import uuid
 from pytube import YouTube
 import time
 import re
+from pytube.cli import on_progress
 
 app = FastAPI()
 
@@ -61,29 +62,51 @@ async def download_youtube_video(url: str = Query(..., description="The YouTube 
         max_retries = 10
         for attempt in range(max_retries):
             try:
+                # Create YouTube object with progress callback
                 yt = YouTube(
                     url,
+                    on_progress_callback=on_progress,
                     use_oauth=False,
                     allow_oauth_cache=True
                 )
                 
-                # Get the highest resolution stream
-                video_stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+                # Wait for the video info to be loaded
+                time.sleep(1)
                 
+                # Try different stream options
+                video_stream = None
+                
+                # Try progressive streams first
+                streams = yt.streams.filter(progressive=True, file_extension='mp4')
+                if streams:
+                    video_stream = streams.order_by('resolution').desc().first()
+                
+                # If no progressive stream, try adaptive streams
                 if not video_stream:
-                    # Try without progressive filter if no progressive stream is found
-                    video_stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
+                    streams = yt.streams.filter(adaptive=True, file_extension='mp4')
+                    if streams:
+                        video_stream = streams.order_by('resolution').desc().first()
+                
+                # If still no stream, try any MP4 stream
+                if not video_stream:
+                    streams = yt.streams.filter(file_extension='mp4')
+                    if streams:
+                        video_stream = streams.order_by('resolution').desc().first()
                 
                 if not video_stream:
                     raise HTTPException(status_code=400, detail="No suitable video stream found")
 
                 # Download the video
+                print(f"Downloading video: {yt.title}")
                 video_stream.download(output_path=DOWNLOAD_DIR, filename=f"{unique_id}.mp4")
+                print("Download completed")
                 break
+                
             except Exception as e:
+                print(f"Attempt {attempt + 1} failed: {str(e)}")
                 if attempt == max_retries - 1:
                     raise HTTPException(status_code=500, detail=f"Failed to download video after {max_retries} attempts: {str(e)}")
-                time.sleep(1)  # Wait before retrying
+                time.sleep(2)  # Wait longer between retries
 
         if not os.path.exists(output_path):
             raise HTTPException(status_code=500, detail="Video download failed")
