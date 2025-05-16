@@ -27,8 +27,10 @@ async def download_youtube_video(url: str = Query(..., description="The YouTube 
         ydl_opts = {
             'format': 'best[ext=mp4]',
             'outtmpl': filepath_template,
-            'quiet': True
+            'quiet': True,
+            'cookiefile': 'youtube_cookies.txt',  # Add this line
         }
+
 
         with YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
