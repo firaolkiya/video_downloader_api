@@ -32,9 +32,11 @@ def cleanup_old_files():
 
 @app.post("/download/")
 async def download_youtube_video(url: str = Query(..., description="The YouTube video URL")):
+    final_filepath = None
     try:
         video_id = str(uuid.uuid4())
         filepath_template = os.path.join(DOWNLOAD_DIR, f"{video_id}.%(ext)s")
+        final_filepath = filepath_template.replace("%(ext)s", "mp4")
 
         ydl_opts = {
             'format': 'best[ext=mp4]',
@@ -51,8 +53,6 @@ async def download_youtube_video(url: str = Query(..., description="The YouTube 
                 if not info_dict:
                     raise HTTPException(status_code=400, detail="Could not extract video information")
                 
-                final_filepath = filepath_template.replace("%(ext)s", "mp4")
-                
                 if not os.path.exists(final_filepath):
                     raise HTTPException(status_code=500, detail="Video download failed")
 
@@ -66,7 +66,8 @@ async def download_youtube_video(url: str = Query(..., description="The YouTube 
                 shutil.copy2(final_filepath, temp_filepath)
 
                 # Clean up the original file
-                os.remove(final_filepath)
+                if os.path.exists(final_filepath):
+                    os.remove(final_filepath)
 
                 # Return the file as a streaming response
                 return FileResponse(
@@ -77,9 +78,11 @@ async def download_youtube_video(url: str = Query(..., description="The YouTube 
                 )
 
             except Exception as e:
-                if os.path.exists(final_filepath):
+                if final_filepath and os.path.exists(final_filepath):
                     os.remove(final_filepath)
                 raise HTTPException(status_code=500, detail=str(e))
 
     except Exception as e:
+        if final_filepath and os.path.exists(final_filepath):
+            os.remove(final_filepath)
         return JSONResponse(status_code=500, content={"error": str(e)})
