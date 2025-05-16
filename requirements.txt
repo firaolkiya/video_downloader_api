@@ -1,5 +1,6 @@
 annotated-types==0.7.0
 anyio==4.9.0
+browser-cookie3==0.19.1
 certifi==2025.4.26
 click==8.1.8
 colorama==0.4.6
