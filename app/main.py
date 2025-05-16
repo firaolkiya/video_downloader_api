@@ -58,7 +58,7 @@ async def download_youtube_video(url: str = Query(..., description="The YouTube 
         output_path = os.path.join(DOWNLOAD_DIR, f"{unique_id}.mp4")
 
         # Initialize YouTube object with retry
-        max_retries = 3
+        max_retries = 10
         for attempt in range(max_retries):
             try:
                 yt = YouTube(
