@@ -1,10 +1,9 @@
 from fastapi import FastAPI, Query, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import uuid
-from yt_dlp import YoutubeDL
-import shutil
+from pytube import YouTube
 import time
 
 app = FastAPI()
@@ -32,57 +31,41 @@ def cleanup_old_files():
 
 @app.post("/download/")
 async def download_youtube_video(url: str = Query(..., description="The YouTube video URL")):
-    final_filepath = None
     try:
+        # Create a unique filename
         video_id = str(uuid.uuid4())
-        filepath_template = os.path.join(DOWNLOAD_DIR, f"{video_id}.%(ext)s")
-        final_filepath = filepath_template.replace("%(ext)s", "mp4")
+        output_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.mp4")
 
-        ydl_opts = {
-            'format': 'best[ext=mp4]',
-            'outtmpl': filepath_template,
-            'quiet': True,
-            'cookiefile': 'youtube_cookies.txt',
-            'no_warnings': True,
-            'extract_flat': False,
-        }
+        # Initialize YouTube object
+        yt = YouTube(url)
+        
+        # Get the highest resolution stream
+        video_stream = yt.streams.get_highest_resolution()
+        
+        if not video_stream:
+            raise HTTPException(status_code=400, detail="No suitable video stream found")
 
-        with YoutubeDL(ydl_opts) as ydl:
-            try:
-                info_dict = ydl.extract_info(url, download=True)
-                if not info_dict:
-                    raise HTTPException(status_code=400, detail="Could not extract video information")
-                
-                if not os.path.exists(final_filepath):
-                    raise HTTPException(status_code=500, detail="Video download failed")
+        # Download the video
+        video_stream.download(output_path=DOWNLOAD_DIR, filename=f"{video_id}.mp4")
 
-                # Get video title and sanitize it for filename
-                video_title = info_dict.get('title', video_id)
-                safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).strip()
-                safe_title = safe_title[:50]  # Limit length
-                
-                # Create a temporary copy with the proper name
-                temp_filepath = os.path.join(DOWNLOAD_DIR, f"{safe_title}.mp4")
-                shutil.copy2(final_filepath, temp_filepath)
+        if not os.path.exists(output_path):
+            raise HTTPException(status_code=500, detail="Video download failed")
 
-                # Clean up the original file
-                if os.path.exists(final_filepath):
-                    os.remove(final_filepath)
+        # Get video title and sanitize it
+        video_title = yt.title
+        safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).strip()
+        safe_title = safe_title[:50]  # Limit length
 
-                # Return the file as a streaming response
-                return FileResponse(
-                    temp_filepath,
-                    media_type="video/mp4",
-                    filename=f"{safe_title}.mp4",
-                    background=cleanup_old_files
-                )
-
-            except Exception as e:
-                if final_filepath and os.path.exists(final_filepath):
-                    os.remove(final_filepath)
-                raise HTTPException(status_code=500, detail=str(e))
+        # Return the file
+        return FileResponse(
+            output_path,
+            media_type="video/mp4",
+            filename=f"{safe_title}.mp4",
+            background=cleanup_old_files
+        )
 
     except Exception as e:
-        if final_filepath and os.path.exists(final_filepath):
-            os.remove(final_filepath)
+        # Clean up the file if it exists
+        if os.path.exists(output_path):
+            os.remove(output_path)
         return JSONResponse(status_code=500, content={"error": str(e)})
